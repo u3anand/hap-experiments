@@ -2,6 +2,7 @@ import torch
 import torchvision
 import wikitext.data as data
 import sys
+from torch.distributed.algorithms._checkpoint import checkpoint_wrapper
 
 def get_model(config, seed=None):
     import models
@@ -82,3 +83,11 @@ def input_shape(config):
         return { 'x': (config.batch_size, 3, 32, 32), 'y': (config.batch_size,) }
     if config.model_name.startswith('T'):
         return { 'x': (config.batch_size, config.seqlen, config.emsize), 'y': (config.batch_size,) }
+    
+def wrap_model_layers(model):
+    for i in range(len(model.layers)):
+        model.layers[i] = checkpoint_wrapper.CheckpointWrapper(
+                            model.layers[i],
+                            checkpoint_impl=checkpoint_wrapper.CheckpointImpl.NO_REENTRANT,
+                            preserve_rng_state=False,
+                          )

@@ -1,40 +1,80 @@
-import config
-import sys
-import datetime
+from argparser import parse_args
+import os
+import json
 import time
+from configure import Config
+from profiler import FlopsProfiler, save_results
 import torch
 import torch.fx
 from torch.profiler import profile, record_function, ProfilerActivity
 import numpy as np
+import torch.multiprocessing as mp
+import hap
+import torch.distributed as dist
+from utils import get_data, get_model, input_shape, wrap_model_layers
 
 def eprint(*args, **kwargs):
     import sys
     print(*args, file=sys.stderr, **kwargs)
 
-def run(global_rank, local_rank):
-    import hap
+def get_device_flops_for_machine(machine_name, model_name, batch_size):
+    file_path = "/profiler_data/flops_config.json"
+    if os.path.exists(file_path):
+        with open(file_path, 'r') as f:
+            results = json.load(f)
+    
+    try:
+        flops = results[machine_name][model_name][batch_size]
+    except Exception as e:
+        flops = []
+        for device_id in range(torch.cuda.device_count()):
+            torch.cuda.set_device(device_id)
+            model = hap.trace(get_model(config)).cuda(device_id)
+            x, y = next(get_data(config)[1])
+            x, y = x.cuda(device_id), y.cuda(device_id)
+            profiler = FlopsProfiler(model, x, y)
+            flops.append(profiler.device_flops)
+            save_results(machine_name, model_name, batch_size, data=flops, is_flops=True)
+            
+    return flops
 
-    import torch.distributed as dist
+def get_comm_bandwidth_for_machine(machine_name):
+    file_path = "/profiler_data/flops_config.json"
+    if os.path.exists(file_path):
+        with open(file_path, 'r') as f:
+            results = json.load(f)
+            
+    try:
+        comm_data = results[machine_name]
+    except Exception as e:
+        eprint("Communication Data not found, please profile comm data")
+        raise SystemExit
+    
+    return comm_data
+
+
+def run(global_rank, local_rank, config, args):
     dist.init_process_group('nccl', rank=global_rank)
 
-    model = hap.trace(config.get_model(seed=39))
+    model = hap.trace(get_model(config, seed=39))
+    
+    if args.use_checkpointing:
+        wrap_model_layers(model)
+        
+    device_flops = get_device_flops_for_machine(args.machine_name, config.model_name, config.batch_size)
+    communication_bandwidth = get_comm_bandwidth_for_machine(args.machine_name)
 
     dgraph = hap.main(model, {
-        "input_shape": config.input_shape(),
-        # "device_flops": [ 3858755112937 ] * round(config.world_size / 8 * 2) + [ 2149250936815 ] * round(config.world_size / 8 * 6),
-        "device_flops": [ 5966645808610 ] * config.world_size,
-        # "device_flops": [ 5712013967207, 5712013967207, 5712013967207, 5712013967207 ],
-        # "device_flops": [3858755112937, 3858755112937, 3858755112937, 3858755112937, 3858755112937, 3858755112937, 3858755112937, 3858755112937, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815, 2149250936815],
-        "all_gather_bandwidth": 9463184466,
-        "all_gather_by_group_call_bandwidth": 9146232360,
-        "all_reduce_bandwidth": 5906161310,
-        "reduce_scatter_bandwidth": 9740459122,
-        "reduce_scatter_by_group_call_bandwidth": 8756865799,
-        "all_to_all_bandwidth": 24588140722,
-
+        "input_shape": input_shape(config),
+        "device_flops": device_flops,
+        "all_gather_bandwidth": communication_bandwidth["all_gather_bandwidth"],
+        "all_gather_by_group_call_bandwidth": communication_bandwidth["all_gather_by_group_call_bandwidth"],
+        "all_reduce_bandwidth": communication_bandwidth["all_reduce_bandwidth"],
+        "reduce_scatter_bandwidth": communication_bandwidth["reduce_scatter_bandwidth"],
+        "reduce_scatter_by_group_call_bandwidth": communication_bandwidth["reduce_scatter_by_group_call_bandwidth"],
+        "all_to_all_bandwidth": communication_bandwidth["all_to_all_bandwidth"],
         "extra_ps": False,
         "group_collective": False,
-
         "rank": global_rank,
         # "sharding_ratios": [ 0.32745167869976854 ] * 2 + [ 0.17254832130023143 ] * 2,
     })
@@ -45,7 +85,7 @@ def run(global_rank, local_rank):
     del model
 
     optimizer = torch.optim.Adam(dmodel.parameters(), lr=config.lr)
-    train_data = config.get_data()[1]
+    train_data = get_data(config)[1]
 
     result_times = []
     strat_time = last_iter_time = time.time()
@@ -138,22 +178,21 @@ def run(global_rank, local_rank):
         prof.export_chrome_trace("trace.json")
 
 if __name__ == '__main__':
-    ranks = [ int(x) for x in sys.argv[1].split(',') ]
+    main_args = parse_args()
+    ranks = main_args.ranks
+    
+    config = Config.from_json(main_args.config_file)
 
-    # if torch.cuda.device_count() != len(ranks):
-    #     eprint("forget to set CUDA_VISIBLE_DEVICES")
-    #     raise SystemExit
-
-    import os
+    # set environment variables
     os.environ['MASTER_ADDR'] = str(config.master_addr)
     os.environ['MASTER_PORT'] = str(config.master_port)
     os.environ['WORLD_SIZE'] = str(config.world_size)
 
-    import torch.multiprocessing as mp
+    # launch processes    
     mp.set_start_method('spawn')
 
     for local_rank, global_rank in enumerate(ranks):
-        mp.Process(target=run, args=(global_rank, local_rank)).start()
+        mp.Process(target=run, args=(global_rank, local_rank, config, main_args)).start()
 
     for p in mp.active_children():
         p.join()

@@ -130,7 +130,7 @@ def _run_collective_worker(op, size: int, skewness: float, queue, global_rank: i
         queue.put(duration)
         
 
-def save_results(machine_name, model_name, data, is_flops=False):
+def save_results(machine_name, model_name, batch_size, data, is_flops=False):
     """
     Save results to ./profiler_data/{}
     """
@@ -151,7 +151,10 @@ def save_results(machine_name, model_name, data, is_flops=False):
         if machine_name not in results:
             results[machine_name] = {}
         
-        results[machine_name][model_name] = data
+        if model_name not in results[machine_name]:
+            results[machine_name][model_name] = {}
+        
+        results[machine_name][model_name][batch_size] = data
 
     with open(file_path, 'w') as f:
         json.dump(results, f, indent=4)
@@ -168,7 +171,7 @@ if __name__ == '__main__':
     if args.profile_bandwidth:
         skewness = args.skewness
         profiler = BandwidthProfiler(config, ranks, skewness)
-        save_results(args.machine, config.model_name, data=profiler.bandwidth)
+        save_results(args.machine, config.model_name, config.batch_size, data=profiler.bandwidth)
         
     if args.profile_flops:
         flop_results = []
@@ -179,4 +182,4 @@ if __name__ == '__main__':
             x, y = x.cuda(device_id), y.cuda(device_id)
             profiler = FlopsProfiler(model, x, y)
             flop_results.append(profiler.device_flops)
-        save_results(args.machine, config.model_name, data=flop_results, is_flops=True)
+        save_results(args.machine, config.model_name, config.batch_size, data=flop_results, is_flops=True)
