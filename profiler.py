@@ -74,14 +74,14 @@ class BandwidthProfiler:
         queue = ctx.Queue(1)
 
         for local_rank, global_rank in enumerate(ranks):
-            ctx.Process(target=_run_collective_worker, args=(op, size, self.skewness, queue, global_rank, local_rank)).start()
+            ctx.Process(target=_run_collective_worker, args=(op, size, self.skewness, queue, global_rank, local_rank, config.world_size)).start()
 
         for p in mp.active_children():
             p.join()
 
         return queue.get()
 
-def _run_collective_worker(op, size: int, skewness: float, queue, global_rank: int, local_rank: int):
+def _run_collective_worker(op, size: int, skewness: float, queue, global_rank: int, local_rank: int, world_size: int):
     import torch.distributed as dist
     dist.init_process_group('nccl', rank=global_rank)
 
@@ -91,7 +91,7 @@ def _run_collective_worker(op, size: int, skewness: float, queue, global_rank: i
 
     if op in (collectives.all_gather, collectives.all_gather_by_group_call):
         total_length = size // 1024
-        sharding_lengths = [skewness] + [1] * (config.world_size - 1)
+        sharding_lengths = [skewness] + [1] * (world_size - 1)
         sharding_lengths = [ x / sum(sharding_lengths) for x in sharding_lengths]
         hap.sharding_round(total_length, sharding_lengths)
 
@@ -100,7 +100,7 @@ def _run_collective_worker(op, size: int, skewness: float, queue, global_rank: i
 
     if op in (collectives.reduce_scatter, collectives.reduce_scatter_by_group_call):
         total_length = size // 1024
-        sharding_lengths = [skewness] + [1] * (config.world_size - 1)
+        sharding_lengths = [skewness] + [1] * (world_size - 1)
         sharding_lengths = [ x / sum(sharding_lengths) for x in sharding_lengths]
         hap.sharding_round(total_length, sharding_lengths)
 
@@ -109,11 +109,11 @@ def _run_collective_worker(op, size: int, skewness: float, queue, global_rank: i
 
     if op is collectives.all_to_all:
         total_length = size // 1024
-        split_sharding_lengths = [skewness] + [1] * (config.world_size - 1)
+        split_sharding_lengths = [skewness] + [1] * (world_size - 1)
         split_sharding_lengths = [ x / sum(split_sharding_lengths) for x in split_sharding_lengths]
         hap.sharding_round(256, split_sharding_lengths)
 
-        cat_sharding_lengths = [skewness] + [1] * (config.world_size - 1)
+        cat_sharding_lengths = [skewness] + [1] * (world_size - 1)
         cat_sharding_lengths = [ x / sum(cat_sharding_lengths) for x in cat_sharding_lengths]
         hap.sharding_round(total_length, cat_sharding_lengths)
 
