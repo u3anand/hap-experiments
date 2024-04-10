@@ -19,34 +19,34 @@ def get_model(config, seed=None):
         return models.TMoE(emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, n_expert=config.n_expert, capacity=config.capacity, nlayers=config.nlayers, segmentation=config.segmentation)
 
     if config.model_name == 'Rtransformer':
-        ntokens, *_ = get_data()
+        ntokens, *_ = get_data(config)
         return models.RTransformer(ntokens=ntokens, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, nlayers=config.nlayers, segmentation=config.segmentation)
     if config.model_name == 'Rmoe':
-        ntokens, *_ = get_data()
+        ntokens, *_ = get_data(config)
         return models.RMoE(ntokens=ntokens, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, n_expert=config.n_expert, capacity=config.capacity, nlayers=config.nlayers, segmentation=config.segmentation)
     if config.model_name == 'Rswitch':
-        ntokens, *_ = get_data()
+        ntokens, *_ = get_data(config)
         return models.RSwitch(ntokens=ntokens, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, n_expert=config.n_expert, capacity=config.capacity, nlayers=config.nlayers, segmentation=config.segmentation)
 
     if config.model_name == 'Vtransformer':
-        nclasses, *_ = get_data()
+        nclasses, *_ = get_data(config)
         return models.VTransformer(nclasses=nclasses, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, nlayers=config.nlayers, segmentation=config.segmentation)
     if config.model_name == 'Vmoe':
-        nclasses, *_ = get_data()
+        nclasses, *_ = get_data(config)
         return models.VMoE(nclasses=nclasses, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, n_expert=config.n_expert, capacity=config.capacity, nlayers=config.nlayers, segmentation=config.segmentation)
     if config.model_name == 'Vswitch':
-        nclasses, *_ = get_data()
+        nclasses, *_ = get_data(config)
         return models.VSwitch(nclasses=nclasses, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, n_expert=config.n_expert, capacity=config.capacity, nlayers=config.nlayers, segmentation=config.segmentation)
     if config.model_name == 'Vvgg':
-        nclasses, *_ = get_data()
+        nclasses, *_ = get_data(config)
         return models.VVGG(nclasses=nclasses, dropout=config.dropout, segmentation=config.segmentation)
     
 def get_data(config):
     if config.model_name.startswith('R'):
-        return wikitext2()
+        return wikitext2(config)
 
     if config.model_name.startswith('V'):
-        return cifar10()
+        return cifar10(config)
 
     if config.model_name.startswith('T'):
         x = torch.rand(config.batch_size, config.seqlen, config.emsize) / 6
