@@ -108,7 +108,7 @@ def get_data():
 
 def wikitext2():
     sys.path.insert(1, f"{rootpath}/wikitext")
-    import data
+    import wikitext.data
     corpus = data.Corpus(f"{rootpath}/wikitext")
     train_data = data.segmentify(data.batchify(corpus.train, batch_size), seqlen)
     test_data = data.segmentify(data.batchify(corpus.test, batch_size), seqlen)

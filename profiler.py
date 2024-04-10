@@ -1,13 +1,17 @@
-import config
-
+import os
 from sys import argv
 
 import math
+from configure import Config
 import torch
 import torch.fx
 import collectives
 import time
 import hap
+from argparser import parse_args
+import json
+
+from utils import get_data, get_model
 
 def eprint(*args, **kwargs):
     import sys
@@ -124,24 +128,55 @@ def _run_collective_worker(op, size: int, skewness: float, queue, global_rank: i
 
     if local_rank == 0:
         queue.put(duration)
+        
+
+def save_results(machine_name, model_name, data, is_flops=False):
+    """
+    Save results to ./profiler_data/{}
+    """
+    results = {}
+    if is_flops:
+        file_path = f"./profiler_data/flops_config.json"
+    else:
+        file_path = f"./profiler_data/bandwidth_config.json"
+    
+    # Attempt to load existing configurations, if the file already exists
+    if os.path.exists(file_path):
+        with open(file_path, 'r') as f:
+            results = json.load(f)
+    
+    if is_flops:
+        results[machine_name] = data
+    else:
+        if machine_name not in results:
+            results[machine_name] = {}
+        
+        results[machine_name][model_name] = data
+
+    with open(file_path, 'w') as f:
+        json.dump(results, f, indent=4)
+        print(f"Configuration saved to {file_path}")
 
 
 if __name__ == '__main__':
-    if len(argv) >= 2:
-        ranks = [ int(x) for x in argv[1].split(',') ]
-        skewness = 1 # float(argv[2])
-
-        # if torch.cuda.device_count() != len(ranks):
-        #     eprint("forget to set CUDA_VISIBLE_DEVICES")
-        #     raise SystemExit
-
+    args = parse_args()
+    ranks = args.ranks
+    machine = args.machine
+    config_file = args.config_file
+    config = Config.from_json(config_file)
+    
+    if args.profile_bandwidth:
+        skewness = args.skewness
         profiler = BandwidthProfiler(config, ranks, skewness)
-        # save("bandwidth_profiler", profiler)
-        raise SystemExit
-
-    # assert config.world_size == 1
-
-    model = hap.trace(config.get_model()).cuda(0)
-    x, y = next(config.get_data()[1])
-    profiler = FlopsProfiler(model, x.cuda(0), y.cuda(0))
-    # save("flops_profiler", profiler)
+        save_results(args.machine, config.model_name, data=profiler.bandwidth)
+        
+    if args.profile_flops:
+        flop_results = []
+        for device_id in range(torch.cuda.device_count()):
+            torch.cuda.set_device(device_id)
+            model = hap.trace(get_model(config)).cuda(device_id)
+            x, y = next(get_data(config)[1])
+            x, y = x.cuda(device_id), y.cuda(device_id)
+            profiler = FlopsProfiler(model, x, y)
+            flop_results.append(profiler.device_flops)
+        save_results(args.machine, config.model_name, data=flop_results, is_flops=True)
