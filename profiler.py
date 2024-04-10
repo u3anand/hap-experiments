@@ -11,7 +11,7 @@ import hap
 from argparser import parse_args
 import json
 
-from utils import get_data, get_model
+from utils import get_data, get_model, input_shape
 
 def eprint(*args, **kwargs):
     import sys
@@ -35,7 +35,7 @@ class FlopsProfiler:
         duration = time.time() - start_time
 
         flops = hap.stat(model, {
-            "input_shape": config.input_shape()
+            "input_shape": input_shape(config)
         })
 
         eprint(f"Profiling finished. Total flops: {flops}, wall time: {duration}")
