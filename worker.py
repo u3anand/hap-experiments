@@ -50,6 +50,7 @@ def run(global_rank, local_rank):
     result_times = []
     strat_time = last_iter_time = time.time()
     total_loss = 0
+    tokens_processed = 0
 
     x, y = next(train_data)
     x = x.cuda(local_rank)
@@ -79,8 +80,11 @@ def run(global_rank, local_rank):
             iter_duration = time.time() - last_iter_time
             result_times.append(iter_duration)
             last_iter_time += iter_duration
+            tokens_processed = config.batch_size * config.seqlen
             eprint("iter time: ", iter_duration)
             eprint("avg±std:", np.mean(result_times[-config.avg_iter:]), np.std(result_times[-config.avg_iter:]))
+            eprint("Training Throughput: ", tokens_processed)
+            tokens_processed = 0
 
     # for epoch in range(config.epoch):
     #     total_loss = 0.
