@@ -9,6 +9,7 @@ def parse_args():
         default=[0, 1, 2, 3],
         help="",
     )
+    parser.add_argument("--config_file", type=str, default="./configs/Rtransformer.json")
     args = parser.parse_args()
 
     return args

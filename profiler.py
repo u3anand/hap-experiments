@@ -136,9 +136,9 @@ def save_results(machine_name, model_name, data, is_flops=False):
     """
     results = {}
     if is_flops:
-        file_path = f"./profiler_data/flops_config.json"
+        file_path = f"/profiler_data/flops_config.json"
     else:
-        file_path = f"./profiler_data/bandwidth_config.json"
+        file_path = f"/profiler_data/bandwidth_config.json"
     
     # Attempt to load existing configurations, if the file already exists
     if os.path.exists(file_path):
