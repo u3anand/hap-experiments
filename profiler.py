@@ -145,7 +145,7 @@ def save_results(machine_name, model_name, data, is_flops=False):
         with open(file_path, 'r') as f:
             results = json.load(f)
     
-    if is_flops:
+    if not is_flops:
         results[machine_name] = data
     else:
         if machine_name not in results:
