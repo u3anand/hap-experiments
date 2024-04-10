@@ -14,7 +14,11 @@ RUN pip install maturin
 RUN PATH="/root/.cargo/bin:${PATH}" RUSTUP_TOOLCHAIN=nightly maturin build --release -o /workspace
 RUN pip install /workspace/*.whl
 
+RUN mkdir /profiler_data
+
 ARG CACHEBUST=1
 
 RUN git fetch --all && git reset --hard origin/main
+
+
 

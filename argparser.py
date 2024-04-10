@@ -9,6 +9,7 @@ def parse_args():
         default=[0, 1, 2, 3],
         help="",
     )
+    parser.add_argument("--skewness", type=int, default=1)
     parser.add_argument("--config_file", type=str, default="./configs/Rtransformer.json")
     parser.add_argument("--profile_bandwidth", action="store_true")
     parser.add_argument("--profile_flops", action="store_true")
