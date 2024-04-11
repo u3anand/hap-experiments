@@ -153,15 +153,17 @@ def run_multiprocessing_setup(args, config):
     os.environ['MASTER_PORT'] = str(config.master_port)
     os.environ['WORLD_SIZE'] = str(config.world_size)
     
-    model_for_trace = get_model(config, seed=39)
-    if main_args.use_checkpointing:
-        wrap_model_layers(model_for_trace)
-    model = hap.trace(model_for_trace)
+    models_for_trace = [get_model(config, seed=39) for i in range(len(args.ranks))]
+    # model_for_trace = get_model(config, seed=39)
+    # if main_args.use_checkpointing:
+    #     wrap_model_layers(model_for_trace)
+    models = [hap.trace(m) for m in models_for_trace]
+    # model = hap.trace(model_for_trace)
     device_flops = get_device_flops_for_machine(args.machine, config.model_name, config.batch_size)
     communication_bandwidth = get_comm_bandwidth_for_machine(args.machine)
     dgraphs = []
-    for rank in args.ranks:
-        dgraph = hap.main(model, {
+    for i, rank in enumerate(args.ranks):
+        dgraph = hap.main(models[i], {
             "input_shape": input_shape(config),
             "device_flops": device_flops,
             "all_gather_bandwidth": communication_bandwidth["all_gather"],
@@ -182,8 +184,8 @@ def run_multiprocessing_setup(args, config):
 
     # for local_rank, global_rank in enumerate(ranks):
     #     mp.Process(target=run, args=(global_rank, local_rank, model, config, main_args)).start()
-    for rank, dgraph in zip(args.ranks, dgraphs):
-        mp.Process(target=run, args=(rank, rank, dgraph, config)).start()
+    for local_rank, global_rank in enumerate(args.ranks):
+        mp.Process(target=run, args=(global_rank, local_rank, dgraphs[0], config)).start()
 
     for p in mp.active_children():
         p.join()
