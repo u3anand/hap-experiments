@@ -46,7 +46,7 @@ def get_comm_bandwidth_for_machine(machine_name):
     return comm_data
 
 
-def run(global_rank, local_rank, dgraph, config):
+def run(global_rank, local_rank, model, dgraph, config):
     dist.init_process_group('nccl', rank=global_rank)
 
     dmodel = torch.fx.GraphModule(model, dgraph).cuda(local_rank)
@@ -148,12 +148,11 @@ def run(global_rank, local_rank, dgraph, config):
 
 def run_multiprocessing_setup(args, config):
     # set environment variables
-    eprint("Batch size: ", type(config.batch_size), config.batch_size)
     os.environ['MASTER_ADDR'] = str(config.master_addr)
     os.environ['MASTER_PORT'] = str(config.master_port)
     os.environ['WORLD_SIZE'] = str(config.world_size)
     
-    models_for_trace = [get_model(config, seed=39) for i in range(len(args.ranks))]
+    models_for_trace = [get_model(config, seed=39) for _ in range(len(args.ranks))]
     # model_for_trace = get_model(config, seed=39)
     # if main_args.use_checkpointing:
     #     wrap_model_layers(model_for_trace)
@@ -185,7 +184,7 @@ def run_multiprocessing_setup(args, config):
     # for local_rank, global_rank in enumerate(ranks):
     #     mp.Process(target=run, args=(global_rank, local_rank, model, config, main_args)).start()
     for local_rank, global_rank in enumerate(args.ranks):
-        mp.Process(target=run, args=(global_rank, local_rank, dgraphs[0], config)).start()
+        mp.Process(target=run, args=(global_rank, local_rank, models[local_rank], dgraphs[local_rank], config)).start()
 
     for p in mp.active_children():
         p.join()
