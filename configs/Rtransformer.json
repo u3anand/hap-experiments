@@ -1,6 +1,6 @@
 {
     "model_name": "Rtransformer",
-    "rootpath": "/workspace/hap-experiments",
+    "rootpath": "/root/hap-experiments",
     "world_size": 4,
     "nlayers": 12,
     "batch_size": 1,
