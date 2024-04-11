@@ -22,12 +22,12 @@ def get_device_flops_for_machine(machine_name, model_name, batch_size):
     if os.path.exists(file_path):
         with open(file_path, 'r') as f:
             results = json.load(f)
-            eprint(results)
     
     try:
         flops = results[machine_name][model_name][str(batch_size)]
     except Exception as e:
         eprint("Flops data not found, please profile flops data")
+        raise SystemExit
             
     return flops
 
@@ -147,7 +147,7 @@ def run(global_rank, local_rank, dgraph, config):
 
 
 def run_multiprocessing_setup(args, config):
-     # set environment variables
+    # set environment variables
     os.environ['MASTER_ADDR'] = str(config.master_addr)
     os.environ['MASTER_PORT'] = str(config.master_port)
     os.environ['WORLD_SIZE'] = str(config.world_size)
