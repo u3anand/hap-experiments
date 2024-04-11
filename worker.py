@@ -43,7 +43,7 @@ def get_comm_bandwidth_for_machine(machine_name):
         eprint("Communication Data not found, please profile comm data")
         raise SystemExit
     
-    return comm_data
+    return comm_data[machine_name]
 
 
 def run(global_rank, local_rank, model, config, args):
