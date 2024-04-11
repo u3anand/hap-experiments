@@ -152,24 +152,25 @@ def run_multiprocessing_setup(args, config):
     os.environ['MASTER_PORT'] = str(config.master_port)
     os.environ['WORLD_SIZE'] = str(config.world_size)
     
-    models_for_trace = [get_model(config, seed=39) for _ in range(len(args.ranks))]
-    if main_args.use_checkpointing:
-        for i in range(len(args.ranks)):
-            wrap_model_layers(models_for_trace[i])
-    models = [hap.trace(m) for m in models_for_trace]
-    
-    # model = hap.trace(model_for_trace)
     if args.use_saved_flops:
         device_flops = get_device_flops_for_machine(args.machine, config.model_name, config.batch_size)
     else:
         device_flops = []
         for device_id in range(torch.cuda.device_count()):
             torch.cuda.set_device(device_id)
-            model = models[device_id].cuda(device_id)
+            model = hap.trace(get_model(config)).cuda(device_id)
             x, y = next(get_data(config)[1])
             x, y = x.cuda(device_id), y.cuda(device_id)
             profiler = FlopsProfiler(model, config, x, y)
             device_flops.append(profiler.device_flops)
+            del model
+    
+    # init models for tracing
+    models_for_trace = [get_model(config, seed=39) for _ in range(len(args.ranks))]
+    if main_args.use_checkpointing:
+        for i in range(len(args.ranks)):
+            wrap_model_layers(models_for_trace[i])
+    models = [hap.trace(m) for m in models_for_trace]
             
     communication_bandwidth = get_comm_bandwidth_for_machine(args.machine)
     
