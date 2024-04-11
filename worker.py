@@ -46,28 +46,8 @@ def get_comm_bandwidth_for_machine(machine_name):
     return comm_data
 
 
-def run(global_rank, local_rank, model, config, args):
+def run(global_rank, local_rank, dgraph, config):
     dist.init_process_group('nccl', rank=global_rank)
-        
-    device_flops = get_device_flops_for_machine(args.machine, config.model_name, config.batch_size)
-    communication_bandwidth = get_comm_bandwidth_for_machine(args.machine)
-
-    dgraph = hap.main(model, {
-        "input_shape": input_shape(config),
-        "device_flops": device_flops,
-        "all_gather_bandwidth": communication_bandwidth["all_gather"],
-        "all_gather_by_group_call_bandwidth": communication_bandwidth["all_gather_by_group_call"],
-        "all_reduce_bandwidth": communication_bandwidth["all_reduce"],
-        "reduce_scatter_bandwidth": communication_bandwidth["reduce_scatter"],
-        "reduce_scatter_by_group_call_bandwidth": communication_bandwidth["reduce_scatter_by_group_call"],
-        "all_to_all_bandwidth": communication_bandwidth["all_to_all"],
-        "extra_ps": False,
-        "group_collective": False,
-        "rank": global_rank,
-        # "sharding_ratios": [ 0.32745167869976854 ] * 2 + [ 0.17254832130023143 ] * 2,
-    })
-
-    # eprint(dgraph)
 
     dmodel = torch.fx.GraphModule(model, dgraph).cuda(local_rank)
     del model
@@ -165,12 +145,9 @@ def run(global_rank, local_rank, model, config, args):
         # eprint(prof.key_averages().table(sort_by="cuda_time_total"))
         prof.export_chrome_trace("trace.json")
 
-if __name__ == '__main__':
-    main_args = parse_args()
-    ranks = main_args.ranks
-    config = Config.from_json(main_args.config_file)
 
-    # set environment variables
+def run_multiprocessing_setup(args, config):
+     # set environment variables
     os.environ['MASTER_ADDR'] = str(config.master_addr)
     os.environ['MASTER_PORT'] = str(config.master_port)
     os.environ['WORLD_SIZE'] = str(config.world_size)
@@ -179,12 +156,39 @@ if __name__ == '__main__':
     if main_args.use_checkpointing:
         wrap_model_layers(model_for_trace)
     model = hap.trace(model_for_trace)
-
+    device_flops = get_device_flops_for_machine(args.machine, config.model_name, config.batch_size)
+    communication_bandwidth = get_comm_bandwidth_for_machine(args.machine)
+    dgraphs = []
+    for _, global_rank in enumerate(args.ranks):
+        dgraph = hap.main(model, {
+            "input_shape": input_shape(config),
+            "device_flops": device_flops,
+            "all_gather_bandwidth": communication_bandwidth["all_gather"],
+            "all_gather_by_group_call_bandwidth": communication_bandwidth["all_gather_by_group_call"],
+            "all_reduce_bandwidth": communication_bandwidth["all_reduce"],
+            "reduce_scatter_bandwidth": communication_bandwidth["reduce_scatter"],
+            "reduce_scatter_by_group_call_bandwidth": communication_bandwidth["reduce_scatter_by_group_call"],
+            "all_to_all_bandwidth": communication_bandwidth["all_to_all"],
+            "extra_ps": False,
+            "group_collective": False,
+            "rank": global_rank,
+            # "sharding_ratios": [ 0.32745167869976854 ] * 2 + [ 0.17254832130023143 ] * 2,
+        })
+        dgraphs.append(dgraph)
+        
     # launch processes    
     mp.set_start_method('spawn')
 
-    for local_rank, global_rank in enumerate(ranks):
-        mp.Process(target=run, args=(global_rank, local_rank, model, config, main_args)).start()
+    # for local_rank, global_rank in enumerate(ranks):
+    #     mp.Process(target=run, args=(global_rank, local_rank, model, config, main_args)).start()
+    for rank, dgraph in zip(ranks, dgraphs):
+        mp.Process(target=run, args=(rank, rank, dgraph, config)).start()
 
     for p in mp.active_children():
         p.join()
+    
+
+if __name__ == '__main__':
+    main_args = parse_args()
+    config = Config.from_json(main_args.config_file)
+    run_multiprocessing_setup(main_args, config)
