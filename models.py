@@ -145,14 +145,14 @@ class RSwitch(torch.nn.Module):
         return self.criterion(x.transpose(1, 2), y) # the input to NLL loss is (N, C, ...), so we move the class prediction to the second dimension
 
 class VTransformer(torch.nn.Module):
-    def __init__(self, nclasses, seqlen, emsize=2048, nheads=4, nhid=2048, dropout=0.2, nlayers=2, segmentation=True):
+    def __init__(self, nclasses, seqlen, emsize=2048, nheads=4, nhid=2048, dropout=0.2, nlayers=2, segmentation=True, image_size=32, patch_size=4):
         super().__init__()
         self.emsize = emsize
         self.criterion = torch.nn.NLLLoss(reduction='sum')
 
-        assert seqlen == 8 * 8
+        assert seqlen == (image_size // patch_size) ** 2
 
-        self.patch_embed = PatchEmbed((32, 32), (4, 4), embed_dim=emsize)
+        self.patch_embed = PatchEmbed((image_size, image_size), (patch_size, patch_size), embed_dim=emsize)
         self.cls_token = torch.nn.Parameter(torch.zeros(1, 1, emsize))
         self.pos_embed = torch.nn.Parameter(torch.zeros(1, seqlen + 1, emsize)) # seqlen patches + 1 cls token
 
