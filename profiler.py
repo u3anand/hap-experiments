@@ -154,7 +154,8 @@ def save_results(machine_name, model_name, batch_size, data, is_flops=False):
         if model_name not in results[machine_name]:
             results[machine_name][model_name] = {}
         
-        results[machine_name][model_name][batch_size] = data
+        if batch_size not in results[machine_name][model_name][batch_size]:
+            results[machine_name][model_name][batch_size] = data
 
     with open(file_path, 'w') as f:
         json.dump(results, f, indent=4)

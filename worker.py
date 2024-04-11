@@ -181,7 +181,7 @@ def run_multiprocessing_setup(args, config):
 
     # for local_rank, global_rank in enumerate(ranks):
     #     mp.Process(target=run, args=(global_rank, local_rank, model, config, main_args)).start()
-    for rank, dgraph in zip(ranks, dgraphs):
+    for rank, dgraph in zip(args.ranks, dgraphs):
         mp.Process(target=run, args=(rank, rank, dgraph, config)).start()
 
     for p in mp.active_children():
