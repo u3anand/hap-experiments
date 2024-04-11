@@ -46,6 +46,23 @@ def get_comm_bandwidth_for_machine(machine_name):
     return comm_data
 
 
+def print_memory_stats(tag: str):
+    torch.cuda.synchronize()
+    GiB = int(1024**3)
+    max_memory = (
+        torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory / GiB
+    )
+    allocated = torch.cuda.memory_allocated() / GiB
+    max_allocated = torch.cuda.max_memory_allocated() / GiB
+    max_reserved = torch.cuda.max_memory_reserved() / GiB
+    cuda_malloc_retries = torch.cuda.memory_stats().get("num_alloc_retries", 0)
+    print(
+        f"{allocated:.2f} GiB allocated ({allocated / max_memory * 100:.2f}%), "
+        f"{max_allocated:.2f} GiB max allocated ({max_allocated / max_memory * 100:.2f}%), "
+        f"{max_reserved:.2f} GiB max reserved ({max_reserved / max_memory * 100:.2f}%), "
+        f"{cuda_malloc_retries} cuda malloc retries"
+    )
+
 def run(global_rank, local_rank, model, dgraph, config):
     dist.init_process_group('nccl', rank=global_rank)
 
@@ -92,6 +109,7 @@ def run(global_rank, local_rank, model, dgraph, config):
             eprint("iter time: ", iter_duration)
             eprint("avg±std:", np.mean(result_times[-config.avg_iter:]), np.std(result_times[-config.avg_iter:]))
             eprint("Training Throughput: ", tokens_processed)
+            print_memory_stats("Memory stats:")
             tokens_processed = 0
 
     # for epoch in range(config.epoch):
