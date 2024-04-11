@@ -22,19 +22,12 @@ def get_device_flops_for_machine(machine_name, model_name, batch_size):
     if os.path.exists(file_path):
         with open(file_path, 'r') as f:
             results = json.load(f)
+            eprint(results)
     
     try:
-        flops = results[machine_name][model_name][batch_size]
+        flops = results[machine_name][model_name][str(batch_size)]
     except Exception as e:
-        flops = []
-        for device_id in range(torch.cuda.device_count()):
-            torch.cuda.set_device(device_id)
-            model = hap.trace(get_model(config)).cuda(device_id)
-            x, y = next(get_data(config)[1])
-            x, y = x.cuda(device_id), y.cuda(device_id)
-            profiler = FlopsProfiler(model, x, y)
-            flops.append(profiler.device_flops)
-            save_results(machine_name, model_name, batch_size, data=flops, is_flops=True)
+        eprint("Flops data not found, please profile flops data")
             
     return flops
 
@@ -175,7 +168,6 @@ def run(global_rank, local_rank, model, config, args):
 if __name__ == '__main__':
     main_args = parse_args()
     ranks = main_args.ranks
-    
     config = Config.from_json(main_args.config_file)
 
     # set environment variables
