@@ -168,7 +168,7 @@ def run_multiprocessing_setup(args, config):
             model = models[device_id].cuda(device_id)
             x, y = next(get_data(config)[1])
             x, y = x.cuda(device_id), y.cuda(device_id)
-            profiler = FlopsProfiler(model, x, y)
+            profiler = FlopsProfiler(model, config, x, y)
             device_flops.append(profiler.device_flops)
             
     communication_bandwidth = get_comm_bandwidth_for_machine(args.machine)
