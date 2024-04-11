@@ -55,8 +55,7 @@ def get_comm_bandwidth_for_machine(machine_name):
 
 def run(global_rank, local_rank, config, args):
     dist.init_process_group('nccl', rank=global_rank)
-
-    model = hap.trace(get_model(config, seed=39))
+    model = hap.trace(get_model(config))
     
     if args.use_checkpointing:
         wrap_model_layers(model)

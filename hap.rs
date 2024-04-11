@@ -72,9 +72,10 @@ cpython::py_module_initializer!(hap, |py, m| {
 
     py.run(init_script, None, None).map(|_| PyNone);
 
-    // eprintln!("Hap initialized!");
+    eprintln!("Hap initialized!");
 
     m.add(py, "trace", cpython::py_fn!(py, py_trace(py_module: PyObject) -> PyResult<PyObject> {
+        eprintln!("`hap.trace` called with module: {:?}", py_module);
         py.eval("symbolic_trace", None, None)?.call(py, PyTuple::new(py, &[py_module]), None)
     }))?;
 
