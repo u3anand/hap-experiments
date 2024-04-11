@@ -32,7 +32,7 @@ def get_device_flops_for_machine(machine_name, model_name, batch_size):
     return flops
 
 def get_comm_bandwidth_for_machine(machine_name):
-    file_path = "/profiler_data/flops_config.json"
+    file_path = "/profiler_data/bandwidth_config.json"
     if os.path.exists(file_path):
         with open(file_path, 'r') as f:
             results = json.load(f)
@@ -43,7 +43,7 @@ def get_comm_bandwidth_for_machine(machine_name):
         eprint("Communication Data not found, please profile comm data")
         raise SystemExit
     
-    return comm_data[machine_name]
+    return comm_data
 
 
 def run(global_rank, local_rank, model, config, args):
