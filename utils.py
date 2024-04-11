@@ -10,35 +10,35 @@ def get_model(config, seed=None):
     if seed is not None:
         torch.manual_seed(seed)
 
-    if config.model_name == 'Tmlp':
+    if config.model_name.startswith('Tmlp'):
         return models.TMLP(nhid=config.emsize, nlayers=config.nlayers, segmentation=config.segmentation)
-    if config.model_name == 'Tmlp2':
+    if config.model_name.startswith('Tmlp2'):
         return models.TMLP2(nhid=config.emsize, nlayers=config.nlayers, segmentation=config.segmentation)
-    if config.model_name == 'Ttransformer':
+    if config.model_name.startswith('Ttransformer'):
         return models.TTransformer(emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, nlayers=config.nlayers, segmentation=config.segmentation)
-    if config.model_name == 'Tmoe':
+    if config.model_name.startswith('Tmoe'):
         return models.TMoE(emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, n_expert=config.n_expert, capacity=config.capacity, nlayers=config.nlayers, segmentation=config.segmentation)
 
-    if config.model_name == 'Rtransformer':
+    if config.model_name.startswith('Rtransformer'):
         ntokens, *_ = get_data(config)
         return models.RTransformer(ntokens=ntokens, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, nlayers=config.nlayers, segmentation=config.segmentation)
-    if config.model_name == 'Rmoe':
+    if config.model_name.startswith('Rmoe'):
         ntokens, *_ = get_data(config)
         return models.RMoE(ntokens=ntokens, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, n_expert=config.n_expert, capacity=config.capacity, nlayers=config.nlayers, segmentation=config.segmentation)
-    if config.model_name == 'Rswitch':
+    if config.model_name.startswith('Rswitch'):
         ntokens, *_ = get_data(config)
         return models.RSwitch(ntokens=ntokens, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, n_expert=config.n_expert, capacity=config.capacity, nlayers=config.nlayers, segmentation=config.segmentation)
 
-    if config.model_name == 'Vtransformer':
+    if config.model_name.startswith('Vtransformer'):
         nclasses, *_ = get_data(config)
         return models.VTransformer(nclasses=nclasses, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, nlayers=config.nlayers, segmentation=config.segmentation)
-    if config.model_name == 'Vmoe':
+    if config.model_name.startswith('Vmoe'):
         nclasses, *_ = get_data(config)
         return models.VMoE(nclasses=nclasses, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, n_expert=config.n_expert, capacity=config.capacity, nlayers=config.nlayers, segmentation=config.segmentation)
-    if config.model_name == 'Vswitch':
+    if config.model_name.startswith('Vswitch'):
         nclasses, *_ = get_data(config)
         return models.VSwitch(nclasses=nclasses, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, n_expert=config.n_expert, capacity=config.capacity, nlayers=config.nlayers, segmentation=config.segmentation)
-    if config.model_name == 'Vvgg':
+    if config.model_name.startswith('Vvgg'):
         nclasses, *_ = get_data(config)
         return models.VVGG(nclasses=nclasses, dropout=config.dropout, segmentation=config.segmentation)
     

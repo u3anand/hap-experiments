@@ -11,7 +11,7 @@ import hap
 from argparser import parse_args
 import json
 
-from utils import get_data, get_model, input_shape
+from utils import get_data, get_model, input_shape, wrap_model_layers
 
 def eprint(*args, **kwargs):
     import sys
@@ -177,7 +177,13 @@ if __name__ == '__main__':
         flop_results = []
         for device_id in range(torch.cuda.device_count()):
             torch.cuda.set_device(device_id)
-            model = hap.trace(get_model(config)).cuda(device_id)
+            model = get_model(config)
+            # for profiling we only care about ratio of compute, so don't need to profile whole model
+            # delete layers so we don't run OOM
+            del model.layers[5:]
+            if args.use_checkpointing:
+                wrap_model_layers(model)
+            model = hap.trace(model).cuda(device_id)
             x, y = next(get_data(config)[1])
             x, y = x.cuda(device_id), y.cuda(device_id)
             profiler = FlopsProfiler(model, config, x, y)
