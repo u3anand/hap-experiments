@@ -176,7 +176,11 @@ def run_multiprocessing_setup(args, config):
         device_flops = []
         for device_id in range(torch.cuda.device_count()):
             torch.cuda.set_device(device_id)
-            model = hap.trace(get_model(config)).cuda(device_id)
+            trace_model = get_model(config)
+            # for profiling we only care about ratio of compute, so don't need to profile whole model
+            # delete layers so we don't run OOM
+            del trace_model.layers[5:]
+            model = hap.trace(trace_model).cuda(device_id)
             x, y = next(get_data(config)[1])
             x, y = x.cuda(device_id), y.cuda(device_id)
             profiler = FlopsProfiler(model, config, x, y)
