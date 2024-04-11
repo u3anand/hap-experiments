@@ -5,12 +5,14 @@ import time
 from configure import Config
 from profiler import FlopsProfiler, save_results
 import torch
+import torch.nn as nn
 import torch.fx
 from torch.profiler import profile, record_function, ProfilerActivity
 import numpy as np
 import torch.multiprocessing as mp
 import hap
 import torch.distributed as dist
+from torch.distributed.algorithms._checkpoint import checkpoint_wrapper
 from utils import get_data, get_model, input_shape, wrap_model_layers
 
 def eprint(*args, **kwargs):
@@ -63,11 +65,17 @@ def print_memory_stats(tag: str):
         f"{cuda_malloc_retries} cuda malloc retries"
     )
 
-def run(global_rank, local_rank, model, dgraph, config):
+def run(global_rank, local_rank, model, dgraph, config, args):
     dist.init_process_group('nccl', rank=global_rank)
-
+    
     dmodel = torch.fx.GraphModule(model, dgraph).cuda(local_rank)
     del model
+
+    if args.use_checkpointing:
+        for name, module in dmodel.layers.named_children():
+            setattr(dmodel.layers, name, checkpoint_wrapper.CheckpointWrapper(module, checkpoint_impl=checkpoint_wrapper.CheckpointImpl.NO_REENTRANT,preserve_rng_state=False,))
+        eprint("After checkpointing : ", dmodel)
+    
 
     optimizer = torch.optim.Adam(dmodel.parameters(), lr=config.lr)
     train_data = get_data(config)[1]
@@ -177,6 +185,8 @@ def run_multiprocessing_setup(args, config):
         for device_id in range(torch.cuda.device_count()):
             torch.cuda.set_device(device_id)
             trace_model = get_model(config)
+            if main_args.use_checkpointing:
+                wrap_model_layers(trace_model)
             # for profiling we only care about ratio of compute, so don't need to profile whole model
             # delete layers so we don't run OOM
             del trace_model.layers[5:]
@@ -185,13 +195,18 @@ def run_multiprocessing_setup(args, config):
             x, y = x.cuda(device_id), y.cuda(device_id)
             profiler = FlopsProfiler(model, config, x, y)
             device_flops.append(profiler.device_flops)
-            del model
+            del model, x, y
+            torch.cuda.empty_cache()
+    
+    curr_device_flops = torch.tensor(device_flops).cuda()
+    all_device_flops = torch.tensor([0.0 for _ in range(config.world_size)]).cuda() 
+    dist.all_gather_into_tensor(all_device_flops, curr_device_flops)
     
     # init models for tracing
     models_for_trace = [get_model(config, seed=39) for _ in range(len(args.ranks))]
-    if main_args.use_checkpointing:
-        for i in range(len(args.ranks)):
-            wrap_model_layers(models_for_trace[i])
+    # if main_args.use_checkpointing:
+    #     for i in range(len(args.ranks)):
+    #         wrap_model_layers(models_for_trace[i])
     models = [hap.trace(m) for m in models_for_trace]
             
     communication_bandwidth = get_comm_bandwidth_for_machine(args.machine)
@@ -201,7 +216,7 @@ def run_multiprocessing_setup(args, config):
     for i, rank in enumerate(args.ranks):
         dgraph = hap.main(models[i], {
             "input_shape": input_shape(config),
-            "device_flops": device_flops,
+            "device_flops": all_device_flops,
             "all_gather_bandwidth": communication_bandwidth["all_gather"],
             "all_gather_by_group_call_bandwidth": communication_bandwidth["all_gather_by_group_call"],
             "all_reduce_bandwidth": communication_bandwidth["all_reduce"],
@@ -214,14 +229,25 @@ def run_multiprocessing_setup(args, config):
             # "sharding_ratios": [ 0.32745167869976854 ] * 2 + [ 0.17254832130023143 ] * 2,
         })
         dgraphs.append(dgraph)
-        
+    
+    # dmodels = [torch.fx.GraphModule(models[i], dgraphs[i]).cuda(i) for i in main_args.ranks]
+
+    # if main_args.use_checkpointing:
+    #     for i, dmodel in enumerate(dmodels):
+    #         for name, module in dmodel.layers.named_children():
+    #             setattr(dmodel.layers, name, checkpoint_wrapper.CheckpointWrapper(module, checkpoint_impl=checkpoint_wrapper.CheckpointImpl.NO_REENTRANT,preserve_rng_state=False,))
+    #         eprint("After checkpointing : ", dmodel)
+    
+    # for model in models:
+    #     del model  
+            
     # launch processes    
     mp.set_start_method('spawn')
 
     # for local_rank, global_rank in enumerate(ranks):
     #     mp.Process(target=run, args=(global_rank, local_rank, model, config, main_args)).start()
     for local_rank, global_rank in enumerate(args.ranks):
-        mp.Process(target=run, args=(global_rank, local_rank, models[local_rank], dgraphs[local_rank], config)).start()
+        mp.Process(target=run, args=(global_rank, local_rank, models[local_rank], dgraphs[local_rank], config, main_args)).start()
 
     for p in mp.active_children():
         p.join()
