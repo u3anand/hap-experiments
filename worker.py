@@ -88,7 +88,7 @@ def run(global_rank, local_rank, model, dgraph, config):
             iter_duration = time.time() - last_iter_time
             result_times.append(iter_duration)
             last_iter_time += iter_duration
-            tokens_processed = config.batch_size * config.seqlen
+            tokens_processed = config.batch_size * config.seqlen / iter_duration
             eprint("iter time: ", iter_duration)
             eprint("avg±std:", np.mean(result_times[-config.avg_iter:]), np.std(result_times[-config.avg_iter:]))
             eprint("Training Throughput: ", tokens_processed)
@@ -153,9 +153,9 @@ def run_multiprocessing_setup(args, config):
     os.environ['WORLD_SIZE'] = str(config.world_size)
     
     models_for_trace = [get_model(config, seed=39) for _ in range(len(args.ranks))]
-    # model_for_trace = get_model(config, seed=39)
-    # if main_args.use_checkpointing:
-    #     wrap_model_layers(model_for_trace)
+    if main_args.use_checkpointing:
+        for i in range(len(args.ranks)):
+            wrap_model_layers(models_for_trace[i])
     models = [hap.trace(m) for m in models_for_trace]
     # model = hap.trace(model_for_trace)
     device_flops = get_device_flops_for_machine(args.machine, config.model_name, config.batch_size)
