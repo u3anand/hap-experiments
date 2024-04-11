@@ -31,7 +31,7 @@ def get_model(config, seed=None):
 
     if config.model_name.startswith('Vtransformer'):
         nclasses, *_ = get_data(config)
-        return models.VTransformer(nclasses=nclasses, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, nlayers=config.nlayers, segmentation=config.segmentation)
+        return models.VTransformer(nclasses=nclasses, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, nlayers=config.nlayers, segmentation=config.segmentation, image_size=config.image_size, patch_size=config.patch_size)
     if config.model_name.startswith('Vmoe'):
         nclasses, *_ = get_data(config)
         return models.VMoE(nclasses=nclasses, seqlen=config.seqlen, emsize=config.emsize, nheads=config.nheads, nhid=config.nhid, dropout=config.dropout, n_expert=config.n_expert, capacity=config.capacity, nlayers=config.nlayers, segmentation=config.segmentation)
@@ -47,7 +47,8 @@ def get_data(config):
         return wikitext2(config)
 
     if config.model_name.startswith('V'):
-        return cifar10(config)
+        # return cifar10(config)
+        return get_image_dataset(config)
 
     if config.model_name.startswith('T'):
         x = torch.rand(config.batch_size, config.seqlen, config.emsize) / 6
@@ -75,6 +76,27 @@ def cifar10(config):
     train_data = torchvision.datasets.CIFAR10(f"{config.rootpath}/cifar10", train=True, transform=torchvision.transforms.ToTensor()) #, download=True
     test_data = torchvision.datasets.CIFAR10(f"{config.rootpath}/cifar10", train=False, transform=torchvision.transforms.ToTensor()) #, download=True
     return 10, it(train_data), it(test_data)
+
+def get_image_dataset(config):
+    def it(data):
+        loader = torch.utils.data.DataLoader(data, batch_size=config.batch_size, drop_last=True)
+        while True:
+            yield from iter(loader)
+    num_channels = 3  # RGB
+    image_size = config.image_size
+    num_batches = config.run_iter * config.batch_size
+    size = (num_batches, num_channels, image_size, image_size)
+    images = torch.randn(size, device="cuda")
+    targets = torch.randint(
+        low=0, high=2, size=(num_batches,), device="cuda"
+    )
+    images2 = torch.randn(size, device="cuda")
+    targets2 = torch.randint(
+        low=0, high=2, size=(num_batches,), device="cuda"
+    )
+    dataset = torch.utils.data.TensorDataset(images, targets)
+    dataset2 = torch.utils.data.TensorDataset(images2, targets2)
+    return 10, it(dataset), it(dataset2)
 
 def input_shape(config):
     if config.model_name.startswith('R'):
