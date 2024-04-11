@@ -55,9 +55,6 @@ def get_comm_bandwidth_for_machine(machine_name):
 
 def run(global_rank, local_rank, model, config, args):
     dist.init_process_group('nccl', rank=global_rank)
-    
-    if args.use_checkpointing:
-        wrap_model_layers(model)
         
     device_flops = get_device_flops_for_machine(args.machine, config.model_name, config.batch_size)
     communication_bandwidth = get_comm_bandwidth_for_machine(args.machine)
@@ -186,7 +183,10 @@ if __name__ == '__main__':
     os.environ['MASTER_PORT'] = str(config.master_port)
     os.environ['WORLD_SIZE'] = str(config.world_size)
     
-    model = hap.trace(get_model(config, seed=39))
+    model_for_trace = get_model(config, seed=39)
+    if main_args.use_checkpointing:
+        wrap_model_layers(model_for_trace)
+    model = hap.trace(model_for_trace)
 
     # launch processes    
     mp.set_start_method('spawn')
