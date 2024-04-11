@@ -53,15 +53,14 @@ def get_comm_bandwidth_for_machine(machine_name):
     return comm_data
 
 
-def run(global_rank, local_rank, config, args):
+def run(global_rank, local_rank, model, config, args):
     dist.init_process_group('nccl', rank=global_rank)
-    model = hap.trace(get_model(config))
     
     if args.use_checkpointing:
         wrap_model_layers(model)
         
-    device_flops = get_device_flops_for_machine(args.machine_name, config.model_name, config.batch_size)
-    communication_bandwidth = get_comm_bandwidth_for_machine(args.machine_name)
+    device_flops = get_device_flops_for_machine(args.machine, config.model_name, config.batch_size)
+    communication_bandwidth = get_comm_bandwidth_for_machine(args.machine)
 
     dgraph = hap.main(model, {
         "input_shape": input_shape(config),
@@ -186,12 +185,14 @@ if __name__ == '__main__':
     os.environ['MASTER_ADDR'] = str(config.master_addr)
     os.environ['MASTER_PORT'] = str(config.master_port)
     os.environ['WORLD_SIZE'] = str(config.world_size)
+    
+    model = hap.trace(get_model(config, seed=39))
 
     # launch processes    
     mp.set_start_method('spawn')
 
     for local_rank, global_rank in enumerate(ranks):
-        mp.Process(target=run, args=(global_rank, local_rank, config, main_args)).start()
+        mp.Process(target=run, args=(global_rank, local_rank, model, config, main_args)).start()
 
     for p in mp.active_children():
         p.join()
