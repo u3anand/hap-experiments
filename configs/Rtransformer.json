@@ -3,7 +3,7 @@
     "rootpath": "/root/hap-experiments",
     "world_size": 4,
     "nlayers": 12,
-    "batch_size": 4,
+    "batch_size": 1,
     "seqlen": 128,
     "emsize": 768,
     "dropout": 0.1,

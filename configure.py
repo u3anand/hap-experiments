@@ -7,7 +7,7 @@ class Config:
         self.rootpath = config_dict.get('rootpath', "/home/u3anand/fall2023/hap")
         self.world_size = config_dict.get('world_size', 4)
         self.nlayers = config_dict.get('nlayers', 36)
-        self.batch_size = config_dict.get('batch_size', 128) # Default 32*world_size
+        self.batch_size = config_dict.get('batch_size', 128) * world_size # Default 32*world_size
         self.seqlen = config_dict.get('seqlen', 512)
         self.emsize = config_dict.get('emsize', 1536)
         self.dropout = config_dict.get('dropout', 0.1)
@@ -25,8 +25,6 @@ class Config:
         self.nhid = self.emsize * 4
         self.master_addr = "127.0.0.1"
         self.master_port = 39266
-        if self.model_name.startswith('V'):
-            self.seqlen = 64
             
     @staticmethod
     def from_json(json_input):
