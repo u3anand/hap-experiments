@@ -18,7 +18,7 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 class FlopsProfiler:
-    def __init__(self, model: torch.fx.GraphModule, *input_data) -> None:
+    def __init__(self, model: torch.fx.GraphModule, config, *input_data) -> None:
         optimizer = torch.optim.SGD(model.parameters(), lr=1e-8)
 
         for _ in range(11):
@@ -180,6 +180,6 @@ if __name__ == '__main__':
             model = hap.trace(get_model(config)).cuda(device_id)
             x, y = next(get_data(config)[1])
             x, y = x.cuda(device_id), y.cuda(device_id)
-            profiler = FlopsProfiler(model, x, y)
+            profiler = FlopsProfiler(model, config, x, y)
             flop_results.append(profiler.device_flops)
         save_results(args.machine, config.model_name, config.batch_size, data=flop_results, is_flops=True)
