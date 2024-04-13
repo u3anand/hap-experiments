@@ -22,8 +22,6 @@ type SymbolicShape = SVec<Expression, 4>;
 
 static ctrlc_received: AtomicBool = AtomicBool::new(false);
 static init_script: &str = r#"
-import os
-os.chdir('/root/hap-experiments')
 import collectives
 import operator
 import models

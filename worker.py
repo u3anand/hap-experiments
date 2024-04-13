@@ -1,3 +1,4 @@
+import math
 from argparser import parse_args
 import os
 import json
@@ -171,18 +172,15 @@ def run(global_rank, local_rank, model, dgraph, config, args):
         # eprint(prof.key_averages().table(sort_by="cuda_time_total"))
         prof.export_chrome_trace("trace.json")
 
-def worker(local_rank, global_rank, config, model, all_device_flops):
-    os.chdir("/root/hap-experiments")
-    import torch.distributed as dist
-    import hap
+def worker(local_rank, global_rank, config, model, all_device_flops, flops):
     dist.init_process_group('nccl', rank=global_rank, world_size=config.world_size)
     model = model.cuda(local_rank)
     x, y = next(get_data(config)[1])
     x, y = x.cuda(local_rank), y.cuda(local_rank)
-    profiler = FlopsProfiler(model, config, x, y)
-    flops = profiler.device_flops
-    all_device_flops_tensor = torch.zeros(config.world_size).cuda()
-    dist.all_gather(all_device_flops_tensor, torch.tensor([flops]).cuda())
+    profiler = FlopsProfiler(model, x, y)
+    duration = profiler.duration
+    all_device_flops_tensor = torch.zeros(config.world_size, dtype=torch.float32).cuda()
+    dist.all_gather_into_tensor(all_device_flops_tensor, torch.tensor([math.floor(flops / duration)], dtype=torch.float32).cuda()).cuda()
     
     # after all gather, collect into multiprocessing manager of each machine
     if local_rank == 0:
@@ -202,23 +200,33 @@ def run_multiprocessing_setup(args, config):
     # collect device flops first
     # ------------------------------------------> device flops
     models = []
+    flops = []
     for local_rank, global_rank in enumerate(args.ranks):
         trace_model = get_model(config)
         if args.use_checkpointing:
             wrap_model_layers(trace_model)
         # for profiling we only care about ratio of compute, so don't need to profile whole model
         # delete layers so we don't run OOM
-        del trace_model.layers[5:]
-        models.append(hap.trace(trace_model))
+        del trace_model.layers[2:]
+        model = hap.trace(trace_model).cuda(local_rank)
+        models.append(model)
+        flop = hap.stat(model, {
+            "input_shape": input_shape(config)
+        })
+        flops.append(flop)
+        del trace_model
     
     manager = mp.Manager()
     all_device_flops = manager.list([0] * config.world_size)
     
     for local_rank, global_rank in enumerate(args.ranks):
-        mp.Process(target=worker, args=(local_rank, global_rank, config, models[local_rank], all_device_flops)).start()
+        mp.Process(target=worker, args=(local_rank, global_rank, config, models[local_rank], all_device_flops, flops[local_rank])).start()
 
     for p in mp.active_children():
         p.join()
+        
+    for model in models:
+        del model
     # ------------------------------------------> device flops 
     
     communication_bandwidth = get_comm_bandwidth_for_machine(args.machine)
@@ -226,7 +234,6 @@ def run_multiprocessing_setup(args, config):
     # init models for tracing
     models_for_trace = [get_model(config, seed=39) for _ in range(len(args.ranks))]
     models = [hap.trace(m) for m in models_for_trace]
-    
     dgraphs = []
     
     for i, rank in enumerate(args.ranks):

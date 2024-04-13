@@ -18,7 +18,7 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 class FlopsProfiler:
-    def __init__(self, model: torch.fx.GraphModule, config, *input_data) -> None:
+    def __init__(self, model: torch.fx.GraphModule, *input_data) -> None:
         optimizer = torch.optim.SGD(model.parameters(), lr=1e-8)
 
         for _ in range(11):
@@ -34,13 +34,13 @@ class FlopsProfiler:
         torch.cuda.synchronize()
         duration = time.time() - start_time
 
-        flops = hap.stat(model, {
-            "input_shape": input_shape(config)
-        })
+        # flops = hap.stat(model, {
+        #     "input_shape": input_shape(config)
+        # })
 
-        eprint(f"Profiling finished. Total flops: {flops}, wall time: {duration}")
-        self.device_flops = math.floor(flops / duration)
-        eprint("device flops: ", self.device_flops)
+        # eprint(f"Profiling finished. Total flops: {flops}, wall time: {duration}")
+        self.duration = duration
+        eprint("device duration: ", self.duration)
 
 class BandwidthProfiler:
     def __init__(self, config, ranks, skewness) -> None:
