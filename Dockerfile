@@ -19,12 +19,12 @@ COPY . /root/hap-experiments
 COPY ./network/ssh_config /root/.ssh/config
 RUN /usr/sbin/sshd
 
-# RUN cp /root/hap/hap.so /root/hap-experiments
+RUN cp /root/hap/hap.so /root/hap-experiments
 # RUN pip install maturin
 # RUN PATH="/root/.cargo/bin:${PATH}" RUSTUP_TOOLCHAIN=nightly maturin build --release -o /workspace
 # RUN pip install /workspace/*.whl
-RUN PATH="/root/.cargo/bin:${PATH}" cargo +nightly build --release
-RUN cp target/release/libhap.so /root/hap-experiments/hap.so
+# RUN PATH="/root/.cargo/bin:${PATH}" cargo +nightly build --release
+# RUN cp target/release/libhap.so /root/hap-experiments/hap.so
 
 EXPOSE 3922
 
