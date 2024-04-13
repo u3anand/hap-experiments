@@ -1,8 +1,8 @@
 {
     "model_name": "Rtransformer_bert_xlarge",
     "rootpath": "/root/hap-experiments",
-    "world_size": 4,
-    "nlayers": 36,
+    "world_size": 8,
+    "nlayers": 12,
     "batch_size": 1,
     "seqlen": 576,
     "emsize": 1536,

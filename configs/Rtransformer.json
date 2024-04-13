@@ -1,7 +1,7 @@
 {
     "model_name": "Rtransformer",
     "rootpath": "/root/hap-experiments",
-    "world_size": 4,
+    "world_size": 8,
     "nlayers": 12,
     "batch_size": 1,
     "seqlen": 128,
