@@ -15,6 +15,7 @@ import hap
 import torch.distributed as dist
 from torch.distributed.algorithms._checkpoint import checkpoint_wrapper
 from utils import get_data, get_model, input_shape, wrap_model_layers
+from torch.cuda.amp import autocast
 
 def eprint(*args, **kwargs):
     import sys
@@ -76,7 +77,6 @@ def run(global_rank, local_rank, model, dgraph, config, args):
     if args.use_checkpointing:
         for name, module in dmodel.layers.named_children():
             setattr(dmodel.layers, name, checkpoint_wrapper.CheckpointWrapper(module, checkpoint_impl=checkpoint_wrapper.CheckpointImpl.NO_REENTRANT,preserve_rng_state=False,))
-        eprint("After checkpointing : ", dmodel)
     
 
     optimizer = torch.optim.Adam(dmodel.parameters(), lr=config.lr)
@@ -93,8 +93,9 @@ def run(global_rank, local_rank, model, dgraph, config, args):
 
     for iter in range(config.run_iter):
         optimizer.zero_grad()
-
-        loss = dmodel(x, y)
+        
+        with autocast():
+            loss = dmodel(x, y)
 
         aggregated_loss = loss.detach().clone()
         dist.reduce(aggregated_loss, 0)
