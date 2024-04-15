@@ -87,29 +87,34 @@ def run(global_rank, local_rank, model, dgraph, config, args):
     total_loss = 0
     tokens_processed = 0
 
-    x, y = next(train_data)
-    x = x.cuda(local_rank)
-    y = y.cuda(local_rank)
-
     for iter in range(config.run_iter):
         optimizer.zero_grad()
         
-        with autocast():
+        if config.use_ga:
+            for _ in range(config.microbatches):
+                x, y = next(train_data)
+                x = x.cuda(local_rank)
+                y = y.cuda(local_rank)
+                loss = dmodel(x, y)
+                aggregated_loss = loss.detach().clone()
+                loss.backward()
+        else:
+            x, y = next(train_data)
+            x = x.cuda(local_rank)
+            y = y.cuda(local_rank)
             loss = dmodel(x, y)
+            aggregated_loss = loss.detach().clone()
+            loss.backward()
 
-        aggregated_loss = loss.detach().clone()
         dist.reduce(aggregated_loss, 0)
-
+        
         if global_rank == 0:
             total_loss += aggregated_loss.cpu().numpy() / config.batch_size / config.seqlen
             if iter % config.log_iter == 0:
                 eprint(f"loss (log ppl) {iter}: {total_loss / config.log_iter:.3f}, wall clock: {time.time() - strat_time:.3f}")
                 total_loss = 0
-        # dist.barrier(device_ids=[global_rank])
 
-        loss.backward()
         torch.nn.utils.clip_grad_norm_(dmodel.parameters(), 0.5)
-        # torch.cuda.synchronize()
         optimizer.step()
         # dist.barrier()
         if config.report_per_iter_time and local_rank == 0:
@@ -175,6 +180,7 @@ def run(global_rank, local_rank, model, dgraph, config, args):
     if local_rank == 0:
         # eprint(prof.key_averages().table(sort_by="cuda_time_total"))
         prof.export_chrome_trace("trace.json")
+
 
 def worker(local_rank, global_rank, config, model, all_device_flops, flops):
     dist.init_process_group('nccl', rank=global_rank, world_size=config.world_size)

@@ -3,7 +3,7 @@
     "rootpath": "/root/hap-experiments",
     "world_size": 8,
     "nlayers": 12,
-    "batch_size": 8,
+    "batch_size": 1,
     "seqlen": 512,
     "emsize": 768,
     "dropout": 0.1,
@@ -14,5 +14,7 @@
     "log_iter": 100,
     "segmentation": false,
     "trace": false,
-    "report_per_iter_time": true
+    "report_per_iter_time": true,
+    "use_ga": false,
+    "microbatches": 2
 }

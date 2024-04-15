@@ -50,8 +50,11 @@ def get_data(config):
         return cifar10(config)
 
     if config.model_name.startswith('T'):
-        x = torch.rand(config.batch_size, config.seqlen, config.emsize) / 6
-        y = torch.rand(config.batch_size)
+        batch_size = config.batch_size
+        if config.use_ga:
+            batch_size = config.batch_size // config.microbatches
+        x = torch.rand(batch_size, config.seqlen, config.emsize) / 6
+        y = torch.rand(batch_size)
         def rep():
             while True:
                 yield x, y
@@ -60,29 +63,41 @@ def get_data(config):
 def wikitext2(config):
     sys.path.insert(1, f"{config.rootpath}/wikitext")
     
+    batch_size = config.batch_size
+    if config.use_ga:
+        batch_size = config.batch_size // config.microbatches
+    
     corpus = data.Corpus(f"{config.rootpath}/wikitext")
-    train_data = data.segmentify(data.batchify(corpus.train, config.batch_size), config.seqlen)
-    test_data = data.segmentify(data.batchify(corpus.test, config.batch_size), config.seqlen)
-    valid_data = data.segmentify(data.batchify(corpus.valid, config.batch_size), config.seqlen)
+    train_data = data.segmentify(data.batchify(corpus.train, batch_size), config.seqlen)
+    test_data = data.segmentify(data.batchify(corpus.test, batch_size), config.seqlen)
+    valid_data = data.segmentify(data.batchify(corpus.valid, batch_size), config.seqlen)
     ntokens = config.world_size * (len(corpus.dictionary) // config.world_size + 1) # we have to ensure that it is dividable
     return ntokens, train_data, test_data, valid_data
 
 def cifar10(config):
+    batch_size = config.batch_size
+    if config.use_ga:
+        batch_size = config.batch_size // config.microbatches
+        
     def it(data):
-        loader = torch.utils.data.DataLoader(data, batch_size=config.batch_size, drop_last=True)
+        loader = torch.utils.data.DataLoader(data, batch_size=batch_size, drop_last=True)
         while True:
             yield from iter(loader)
+            
     train_data = torchvision.datasets.CIFAR10(f"{config.rootpath}/cifar10", train=True, transform=torchvision.transforms.ToTensor()) #, download=True
     test_data = torchvision.datasets.CIFAR10(f"{config.rootpath}/cifar10", train=False, transform=torchvision.transforms.ToTensor()) #, download=True
     return 10, it(train_data), it(test_data)
 
 def input_shape(config):
+    batch_size = config.batch_size
+    if config.use_ga:
+        batch_size = config.batch_size // config.microbatches
     if config.model_name.startswith('R'):
-        return { 'x': (config.batch_size, config.seqlen), 'y': (config.batch_size, config.seqlen) }
+        return { 'x': (batch_size, config.seqlen), 'y': (batch_size, config.seqlen) }
     if config.model_name.startswith('V'):
-        return { 'x': (config.batch_size, 3, 32, 32), 'y': (config.batch_size,) }
+        return { 'x': (batch_size, 3, 32, 32), 'y': (batch_size,) }
     if config.model_name.startswith('T'):
-        return { 'x': (config.batch_size, config.seqlen, config.emsize), 'y': (config.batch_size,) }
+        return { 'x': (batch_size, config.seqlen, config.emsize), 'y': (batch_size,) }
     
 def wrap_model_layers(model):
     for i in range(len(model.layers)):

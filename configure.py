@@ -25,6 +25,8 @@ class Config:
         self.nhid = self.emsize * 4
         self.master_addr = "192.168.173.203"
         self.master_port = 39266
+        self.use_ga = config_dict.get("use_ga", False)
+        self.microbatches = config_dict.get("microbatches", 2)
             
     @staticmethod
     def from_json(json_input):
