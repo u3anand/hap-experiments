@@ -8,6 +8,8 @@ class Config:
         self.world_size = config_dict.get('world_size', 4)
         self.nlayers = config_dict.get('nlayers', 36)
         self.batch_size = config_dict.get('batch_size', 128) * self.world_size # Default 32*world_size
+        self.image_size = config_dict.get('image_size', 32)
+        self.patch_size = config_dict.get('patch_size', 4)
         self.seqlen = config_dict.get('seqlen', 512)
         self.emsize = config_dict.get('emsize', 1536)
         self.dropout = config_dict.get('dropout', 0.1)

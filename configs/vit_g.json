@@ -1,10 +1,10 @@
 {
-    "model_name": "VTransformer_vit_g",
+    "model_name": "Vtransformer_vit_g",
     "rootpath": "/root/hap-experiments",
     "world_size": 4,
     "batch_size": 1,
-    "seqlen": 512,
-    "nlayers": 48,
+    "seqlen": 576,
+    "nlayers": 1,
     "nhid": 1792,
     "emsize": 8192,
     "nheads": 16,
