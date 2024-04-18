@@ -70,9 +70,23 @@ cpython::py_module_initializer!(hap, |py, m| {
         ctrlc_received.store(true, std::sync::atomic::Ordering::Relaxed)
     }).unwrap();
 
-    py.run(init_script, None, None).map(|_| PyNone);
+    // py.run(init_script, None, None).map(|_| PyNone);
+    let globals = PyDict::new(py);
+    py.run(init_script, Some(&globals), None)?;
 
-    eprintln!("Hap initialized!");
+    // Now passing `py` as the first argument to `get_item`
+    // Attempt to explicitly set symbolic_trace globally
+    if let Some(symbolic_trace) = globals.get_item(py, "symbolic_trace") {
+        py.run("global symbolic_trace", Some(&globals), None)?;
+    }
+
+    if let Some(get_shape_of_param_or_buffer) = globals.get_item(py, "get_shape_of_param_or_buffer") {
+        py.run("global get_shape_of_param_or_buffer", Some(&globals), None)?;
+    }
+
+    if let Some(split_param_or_buffer) = globals.get_item(py, "split_param_or_buffer") {
+        py.run("global split_param_or_buffer", Some(&globals), None)?;
+    }
 
     m.add(py, "trace", cpython::py_fn!(py, py_trace(py_module: PyObject) -> PyResult<PyObject> {
         eprintln!("`hap.trace` called with module: {:?}", py_module);

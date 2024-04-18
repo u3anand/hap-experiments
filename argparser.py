@@ -6,6 +6,7 @@ def parse_args():
     parser.add_argument(
         "--ranks",
         nargs="+",
+        type=int,
         default=[0, 1, 2, 3],
         help="",
     )

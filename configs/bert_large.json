@@ -1,20 +1,20 @@
 {
-    "model_name": "Rtransformer_bert_xlarge",
+    "model_name": "Rtransformer_bert_large",
     "rootpath": "/root/hap-experiments",
     "world_size": 8,
-    "nlayers": 36,
-    "batch_size": 1,
+    "nlayers": 24,
+    "batch_size": 32,
     "seqlen": 512,
-    "emsize": 1536,
+    "emsize": 1024,
     "dropout": 0.1,
-    "nheads": 24,
+    "nheads": 16,
     "lr": 0.0005,
-    "run_iter": 100,
+    "run_iter": 15,
     "avg_iter": 50,
     "log_iter": 100,
     "segmentation": false,
     "trace": false,
     "report_per_iter_time": true,
     "use_ga": true,
-    "microbatches": 2
+    "microbatches": 8
 }

@@ -10,6 +10,7 @@ import time
 import hap
 from argparser import parse_args
 import json
+import numpy as np
 
 from utils import get_data, get_model, input_shape, wrap_model_layers
 
@@ -18,6 +19,31 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 class FlopsProfiler:
+    def __init__(self, model: torch.fx.GraphModule, *input_data) -> None:
+        optimizer = torch.optim.SGD(model.parameters(), lr=1e-8)
+
+        for _ in range(11):
+            loss = model(*input_data)
+            loss.backward()
+            optimizer.step()
+        torch.cuda.synchronize()
+
+        start_time = time.time()
+        loss = model(*input_data)
+        loss.backward()
+        optimizer.step()
+        torch.cuda.synchronize()
+        duration = time.time() - start_time
+
+        # flops = hap.stat(model, {
+        #     "input_shape": input_shape(config)
+        # })
+
+        # eprint(f"Profiling finished. Total flops: {flops}, wall time: {duration}")
+        self.duration = duration
+        eprint("device duration: ", self.duration)
+
+class FlopsProfilerOG:
     def __init__(self, model: torch.fx.GraphModule, config, *input_data) -> None:
         optimizer = torch.optim.SGD(model.parameters(), lr=1e-8)
 
@@ -175,17 +201,28 @@ if __name__ == '__main__':
         
     if args.profile_flops:
         flop_results = []
-        for device_id in range(torch.cuda.device_count()):
-            torch.cuda.set_device(device_id)
-            model = get_model(config)
-            # for profiling we only care about ratio of compute, so don't need to profile whole model
-            # delete layers so we don't run OOM
-            del model.layers[5:]
-            if args.use_checkpointing:
-                wrap_model_layers(model)
-            model = hap.trace(model).cuda(device_id)
-            x, y = next(get_data(config)[1])
-            x, y = x.cuda(device_id), y.cuda(device_id)
-            profiler = FlopsProfiler(model, config, x, y)
-            flop_results.append(profiler.device_flops)
-        save_results(args.machine, config.model_name, config.batch_size, data=flop_results, is_flops=True)
+        for batch_size in range(1, 65):
+            config.batch_size = batch_size
+            flops = []
+            for device_id in range(torch.cuda.device_count()):
+                torch.cuda.set_device(device_id)
+                model = get_model(config)
+                # for profiling we only care about ratio of compute, so don't need to profile whole model
+                # delete layers so we don't run OOM
+                del model.layers[5:]
+                if args.use_checkpointing:
+                    wrap_model_layers(model)
+                model = hap.trace(model).cuda(device_id)
+                x, y = next(get_data(config)[1])
+                x, y = x.cuda(device_id), y.cuda(device_id)
+                profiler = FlopsProfilerOG(model, config, x, y)
+                flops.append(profiler.device_flops)
+                eprint(flops)
+            flop_results.append(flops)
+        
+        eprint(flop_results)
+        ratios = []
+        for f in flop_results:
+            ratios.append( np.array(f) / np.min(np.array(f)) )
+        eprint(ratios)
+        #save_results(args.machine, config.model_name, config.batch_size, data=flop_results, is_flops=True)

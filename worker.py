@@ -1,3 +1,4 @@
+import math
 from argparser import parse_args
 import os
 import json
@@ -14,6 +15,7 @@ import hap
 import torch.distributed as dist
 from torch.distributed.algorithms._checkpoint import checkpoint_wrapper
 from utils import get_data, get_model, input_shape, wrap_model_layers
+from torch.cuda.amp import autocast
 
 def eprint(*args, **kwargs):
     import sys
@@ -67,6 +69,7 @@ def print_memory_stats(tag: str):
 
 def run(global_rank, local_rank, model, dgraph, config, args):
     dist.init_process_group('nccl', rank=global_rank)
+    torch.cuda.set_device(local_rank)
     
     dmodel = torch.fx.GraphModule(model, dgraph).cuda(local_rank)
     del model
@@ -74,51 +77,61 @@ def run(global_rank, local_rank, model, dgraph, config, args):
     if args.use_checkpointing:
         for name, module in dmodel.layers.named_children():
             setattr(dmodel.layers, name, checkpoint_wrapper.CheckpointWrapper(module, checkpoint_impl=checkpoint_wrapper.CheckpointImpl.NO_REENTRANT,preserve_rng_state=False,))
-        eprint("After checkpointing : ", dmodel)
     
 
     optimizer = torch.optim.Adam(dmodel.parameters(), lr=config.lr)
     train_data = get_data(config)[1]
 
     result_times = []
+    throughputs = []
     strat_time = last_iter_time = time.time()
     total_loss = 0
     tokens_processed = 0
 
-    x, y = next(train_data)
-    x = x.cuda(local_rank)
-    y = y.cuda(local_rank)
-
     for iter in range(config.run_iter):
+        iter_start = time.time()
         optimizer.zero_grad()
+        
+        if config.use_ga:
+            for _ in range(config.microbatches):
+                x, y = next(train_data)
+                x = x.cuda(local_rank)
+                y = y.cuda(local_rank)
+                loss = dmodel(x, y)
+                aggregated_loss = loss.detach().clone()
+                loss.backward()
+        else:
+            x, y = next(train_data)
+            x = x.cuda(local_rank)
+            y = y.cuda(local_rank)
+            loss = dmodel(x, y)
+            aggregated_loss = loss.detach().clone()
+            loss.backward()
 
-        loss = dmodel(x, y)
-
-        aggregated_loss = loss.detach().clone()
         dist.reduce(aggregated_loss, 0)
-
+        
         if global_rank == 0:
             total_loss += aggregated_loss.cpu().numpy() / config.batch_size / config.seqlen
             if iter % config.log_iter == 0:
                 eprint(f"loss (log ppl) {iter}: {total_loss / config.log_iter:.3f}, wall clock: {time.time() - strat_time:.3f}")
                 total_loss = 0
-        # dist.barrier(device_ids=[global_rank])
 
-        loss.backward()
         torch.nn.utils.clip_grad_norm_(dmodel.parameters(), 0.5)
-        # torch.cuda.synchronize()
         optimizer.step()
         # dist.barrier()
-        if config.report_per_iter_time and local_rank == 0:
-            iter_duration = time.time() - last_iter_time
+        if config.report_per_iter_time and local_rank == 0 and iter > 2: # considering first 2 as warmup
+            iter_duration = time.time() - iter_start
             result_times.append(iter_duration)
             last_iter_time += iter_duration
             tokens_processed = config.batch_size * config.seqlen / iter_duration
             eprint("iter time: ", iter_duration)
             eprint("avg±std:", np.mean(result_times[-config.avg_iter:]), np.std(result_times[-config.avg_iter:]))
             eprint("Training Throughput: ", tokens_processed)
-            print_memory_stats("Memory stats:")
+            throughputs.append(tokens_processed)
             tokens_processed = 0
+        
+        eprint("Memory stats for rank : ", global_rank)
+        print_memory_stats("Memory stats")
 
     # for epoch in range(config.epoch):
     #     total_loss = 0.
@@ -144,9 +157,12 @@ def run(global_rank, local_rank, model, dgraph, config, args):
     #         loss.backward()
     #         optimizer.step()
 
+    if local_rank == 0:
+        eprint("Average Throughput over all iterations : ", np.mean(np.array(throughputs)))
+
     if not config.trace:
         return
-
+    
     # x, y = next(train_data)
     # x = x.cuda(local_rank)
     # y = y.cuda(local_rank)
@@ -172,51 +188,94 @@ def run(global_rank, local_rank, model, dgraph, config, args):
         prof.export_chrome_trace("trace.json")
 
 
+def worker(local_rank, global_rank, config, model, all_device_flops, flops):
+    dist.init_process_group('nccl', rank=global_rank, world_size=config.world_size)
+    torch.cuda.set_device(local_rank)
+    model = model.cuda(local_rank)
+    x, y = next(get_data(config)[1])
+    x, y = x.cuda(local_rank), y.cuda(local_rank)
+    profiler = FlopsProfiler(model, x, y)
+    duration = profiler.duration
+    all_device_flops_tensor = torch.zeros(config.world_size, dtype=torch.float32).cuda()
+    eprint("Reached all gather for rank : ", global_rank)
+    dist.barrier()
+    dist.all_gather_into_tensor(all_device_flops_tensor, torch.tensor([math.floor(flops / duration)], dtype=torch.float32).cuda())
+    dist.barrier()
+    eprint("Tensor after all gather on rank : ", global_rank, all_device_flops_tensor)
+    eprint("Completed all gather for rank : ", global_rank)
+    
+    # after all gather, collect into multiprocessing manager of each machine
+    if local_rank == 0:
+        eprint("Copying all device flops for rank : ", global_rank)
+        for i in range(config.world_size):
+            all_device_flops[i] = all_device_flops_tensor[i].item()
+        eprint("Completed copying all device flops for rank: ", global_rank)
+
+    # cleanup
+    del model, x, y
+    torch.cuda.empty_cache()
+    eprint("Returning to main : ", global_rank)
+    # dist.destroy_process_group()
+
 def run_multiprocessing_setup(args, config):
     # set environment variables
     os.environ['MASTER_ADDR'] = str(config.master_addr)
     os.environ['MASTER_PORT'] = str(config.master_port)
     os.environ['WORLD_SIZE'] = str(config.world_size)
     
-    if args.use_saved_flops:
-        device_flops = get_device_flops_for_machine(args.machine, config.model_name, config.batch_size)
-    else:
-        device_flops = []
-        for device_id in range(torch.cuda.device_count()):
-            torch.cuda.set_device(device_id)
-            trace_model = get_model(config)
-            if main_args.use_checkpointing:
-                wrap_model_layers(trace_model)
-            # for profiling we only care about ratio of compute, so don't need to profile whole model
-            # delete layers so we don't run OOM
-            del trace_model.layers[5:]
-            model = hap.trace(trace_model).cuda(device_id)
-            x, y = next(get_data(config)[1])
-            x, y = x.cuda(device_id), y.cuda(device_id)
-            profiler = FlopsProfiler(model, config, x, y)
-            device_flops.append(profiler.device_flops)
-            del model, x, y
-            torch.cuda.empty_cache()
+    # # collect device flops first
+    # # ------------------------------------------> device flops
+    # models = []
+    # flops = []
+    # for local_rank, global_rank in enumerate(args.ranks):
+    #     trace_model = get_model(config)
+    #     if args.use_checkpointing:
+    #         wrap_model_layers(trace_model)
+    #     # for profiling we only care about ratio of compute, so don't need to profile whole model
+    #     # delete layers so we don't run OOM
+    #     del trace_model.layers[2:]
+    #     model = hap.trace(trace_model)
+    #     models.append(model)
+    #     flop = hap.stat(model, {
+    #         "input_shape": input_shape(config)
+    #     })
+    #     flops.append(flop)
+    #     del trace_model
     
-    curr_device_flops = torch.tensor(device_flops).cuda()
-    all_device_flops = torch.tensor([0.0 for _ in range(config.world_size)]).cuda() 
-    dist.all_gather_into_tensor(all_device_flops, curr_device_flops)
+    # manager = mp.Manager()
+    # all_device_flops = manager.list([0] * config.world_size)
     
-    # init models for tracing
-    models_for_trace = [get_model(config, seed=39) for _ in range(len(args.ranks))]
-    # if main_args.use_checkpointing:
-    #     for i in range(len(args.ranks)):
-    #         wrap_model_layers(models_for_trace[i])
-    models = [hap.trace(m) for m in models_for_trace]
-            
+    # processes = []
+    
+    # for local_rank, global_rank in enumerate(args.ranks):
+    #     p = mp.Process(target=worker, args=(local_rank, global_rank, config, models[local_rank], all_device_flops, flops[local_rank]))
+    #     processes.append(p)
+    #     p.start()
+        
+    # for i, p in enumerate(processes):
+    #     p.join()
+    #     eprint("Complete process : ", i)
+    # # ------------------------------------------> device flops 
+    
+    # eprint("Returned to main, collected flops")
+    # eprint(list(all_device_flops))
+    
     communication_bandwidth = get_comm_bandwidth_for_machine(args.machine)
     
+    eprint("Fetched communication bandwidth")
+
+    # init models for tracing
+    models_for_trace = [get_model(config, seed=39) for _ in range(len(args.ranks))]
+    models = [hap.trace(m) for m in models_for_trace]
     dgraphs = []
     
+    # all_device_flops = [9023027937280, 8905551773696, 18255903195136, 5760383188992, 6834102468608, 6720948535296, 5748290486272, 5753121800192]
+    # eprint("Using device flops : ", list(all_device_flops))
+    all_device_flops = [9728575930368.0, 9639341064192.0, 19947413569536.0, 6395359395840.0, 7046753681408.0, 7054698217472.0, 6429169156096.0, 6444939214848.0]
     for i, rank in enumerate(args.ranks):
         dgraph = hap.main(models[i], {
             "input_shape": input_shape(config),
-            "device_flops": all_device_flops,
+            "device_flops": list(all_device_flops),
             "all_gather_bandwidth": communication_bandwidth["all_gather"],
             "all_gather_by_group_call_bandwidth": communication_bandwidth["all_gather_by_group_call"],
             "all_reduce_bandwidth": communication_bandwidth["all_reduce"],
@@ -229,30 +288,22 @@ def run_multiprocessing_setup(args, config):
             # "sharding_ratios": [ 0.32745167869976854 ] * 2 + [ 0.17254832130023143 ] * 2,
         })
         dgraphs.append(dgraph)
-    
-    # dmodels = [torch.fx.GraphModule(models[i], dgraphs[i]).cuda(i) for i in main_args.ranks]
+        
+    eprint("Distributed programs generated for all ranks")
 
-    # if main_args.use_checkpointing:
-    #     for i, dmodel in enumerate(dmodels):
-    #         for name, module in dmodel.layers.named_children():
-    #             setattr(dmodel.layers, name, checkpoint_wrapper.CheckpointWrapper(module, checkpoint_impl=checkpoint_wrapper.CheckpointImpl.NO_REENTRANT,preserve_rng_state=False,))
-    #         eprint("After checkpointing : ", dmodel)
+    training_processes = []
     
-    # for model in models:
-    #     del model  
-            
-    # launch processes    
-    mp.set_start_method('spawn')
-
-    # for local_rank, global_rank in enumerate(ranks):
-    #     mp.Process(target=run, args=(global_rank, local_rank, model, config, main_args)).start()
     for local_rank, global_rank in enumerate(args.ranks):
-        mp.Process(target=run, args=(global_rank, local_rank, models[local_rank], dgraphs[local_rank], config, main_args)).start()
+        p = mp.Process(target=run, args=(global_rank, local_rank, models[local_rank], dgraphs[local_rank], config, main_args))
+        training_processes.append(p)
+        p.start()
 
-    for p in mp.active_children():
+    for p in training_processes:
         p.join()
 
 if __name__ == '__main__':
     main_args = parse_args()
     config = Config.from_json(main_args.config_file)
+    # set start method 
+    mp.set_start_method('spawn')
     run_multiprocessing_setup(main_args, config)

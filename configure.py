@@ -23,8 +23,10 @@ class Config:
         self.capacity_factor = 1.25 if not self.model_name.endswith('moe') else 2.5
         self.capacity = math.ceil(self.seqlen / self.n_expert * self.capacity_factor)
         self.nhid = self.emsize * 4
-        self.master_addr = "127.0.0.1"
+        self.master_addr = "192.168.173.203"
         self.master_port = 39266
+        self.use_ga = config_dict.get("use_ga", False)
+        self.microbatches = config_dict.get("microbatches", 2)
             
     @staticmethod
     def from_json(json_input):
