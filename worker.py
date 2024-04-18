@@ -83,11 +83,13 @@ def run(global_rank, local_rank, model, dgraph, config, args):
     train_data = get_data(config)[1]
 
     result_times = []
+    throughputs = []
     strat_time = last_iter_time = time.time()
     total_loss = 0
     tokens_processed = 0
 
     for iter in range(config.run_iter):
+        iter_start = time.time()
         optimizer.zero_grad()
         
         if config.use_ga:
@@ -117,14 +119,15 @@ def run(global_rank, local_rank, model, dgraph, config, args):
         torch.nn.utils.clip_grad_norm_(dmodel.parameters(), 0.5)
         optimizer.step()
         # dist.barrier()
-        if config.report_per_iter_time and local_rank == 0:
-            iter_duration = time.time() - last_iter_time
+        if config.report_per_iter_time and local_rank == 0 and iter > 2: # considering first 2 as warmup
+            iter_duration = time.time() - iter_start
             result_times.append(iter_duration)
             last_iter_time += iter_duration
             tokens_processed = config.batch_size * config.seqlen / iter_duration
             eprint("iter time: ", iter_duration)
             eprint("avg±std:", np.mean(result_times[-config.avg_iter:]), np.std(result_times[-config.avg_iter:]))
             eprint("Training Throughput: ", tokens_processed)
+            throughputs.append(tokens_processed)
             tokens_processed = 0
         
         eprint("Memory stats for rank : ", global_rank)
@@ -154,9 +157,12 @@ def run(global_rank, local_rank, model, dgraph, config, args):
     #         loss.backward()
     #         optimizer.step()
 
+    if local_rank == 0:
+        eprint("Average Throughput over all iterations : ", np.mean(np.array(throughputs)))
+
     if not config.trace:
         return
-
+    
     # x, y = next(train_data)
     # x = x.cuda(local_rank)
     # y = y.cuda(local_rank)
@@ -227,7 +233,7 @@ def run_multiprocessing_setup(args, config):
     #         wrap_model_layers(trace_model)
     #     # for profiling we only care about ratio of compute, so don't need to profile whole model
     #     # delete layers so we don't run OOM
-    #     del trace_model.layers[3:]
+    #     del trace_model.layers[2:]
     #     model = hap.trace(trace_model)
     #     models.append(model)
     #     flop = hap.stat(model, {
@@ -252,6 +258,7 @@ def run_multiprocessing_setup(args, config):
     # # ------------------------------------------> device flops 
     
     # eprint("Returned to main, collected flops")
+    # eprint(list(all_device_flops))
     
     communication_bandwidth = get_comm_bandwidth_for_machine(args.machine)
     
@@ -262,9 +269,9 @@ def run_multiprocessing_setup(args, config):
     models = [hap.trace(m) for m in models_for_trace]
     dgraphs = []
     
-    all_device_flops = [9023027937280, 8905551773696, 18255903195136, 5760383188992, 6834102468608, 6720948535296, 5748290486272, 5753121800192]
-    eprint("Using device flops : ", list(all_device_flops))
-    
+    # all_device_flops = [9023027937280, 8905551773696, 18255903195136, 5760383188992, 6834102468608, 6720948535296, 5748290486272, 5753121800192]
+    # eprint("Using device flops : ", list(all_device_flops))
+    all_device_flops = [9728575930368.0, 9639341064192.0, 19947413569536.0, 6395359395840.0, 7046753681408.0, 7054698217472.0, 6429169156096.0, 6444939214848.0]
     for i, rank in enumerate(args.ranks):
         dgraph = hap.main(models[i], {
             "input_shape": input_shape(config),

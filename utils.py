@@ -1,3 +1,4 @@
+from models import get_llama_model
 import torch
 import torchvision
 import wikitext.data as data
@@ -41,6 +42,9 @@ def get_model(config, seed=None):
     if config.model_name.startswith('Vvgg'):
         nclasses, *_ = get_data(config)
         return models.VVGG(nclasses=nclasses, dropout=config.dropout, segmentation=config.segmentation)
+    
+    if config.model_name.startswith('llama'):
+        return get_llama_model(config)
     
 def get_data(config):
     if config.model_name.startswith('R'):

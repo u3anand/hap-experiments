@@ -1,5 +1,5 @@
 {
-    "model_name": "Rtransformer_bert_xlarge",
+    "model_name": "Rtransformer_bert_base",
     "rootpath": "/root/hap-experiments",
     "world_size": 8,
     "nlayers": 12,
@@ -15,6 +15,6 @@
     "segmentation": false,
     "trace": false,
     "report_per_iter_time": true,
-    "use_ga": false,
+    "use_ga": true,
     "microbatches": 2
 }
